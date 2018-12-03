@@ -1,0 +1,73 @@
+#ifndef COMMON_H
+#define COMMON_H
+
+#include <cufft.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <cufftXt.h>
+#include <cuda_fp16.h>
+#include <assert.h>
+
+#define ITER 10
+#define DATA_SIZE 65536
+
+void cudaCheckReturn(cudaError_t ret)
+{
+    if (ret != cudaSuccess) {
+        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(ret));
+        fflush(stderr);
+    }
+    assert(ret == cudaSuccess);
+}
+
+const char *cufftGetErrorString(cufftResult error)
+{
+    switch (error) {
+    case CUFFT_SUCCESS:
+        return "CUFFT_SUCCESS";
+
+    case CUFFT_INVALID_PLAN:
+        return "CUFFT_INVALID_PLAN";
+
+    case CUFFT_ALLOC_FAILED:
+        return "CUFFT_ALLOC_FAILED";
+
+    case CUFFT_INVALID_TYPE:
+        return "CUFFT_INVALID_TYPE";
+
+    case CUFFT_INVALID_VALUE:
+        return "CUFFT_INVALID_VALUE";
+
+    case CUFFT_INTERNAL_ERROR:
+        return "CUFFT_INTERNAL_ERROR";
+
+    case CUFFT_EXEC_FAILED:
+        return "CUFFT_EXEC_FAILED";
+
+    case CUFFT_SETUP_FAILED:
+        return "CUFFT_SETUP_FAILED";
+
+    case CUFFT_INVALID_SIZE:
+        return "CUFFT_INVALID_SIZE";
+
+    case CUFFT_UNALIGNED_DATA:
+        return "CUFFT_UNALIGNED_DATA";
+    }
+
+    return "<unknown>";
+}
+
+void cufftCheckReturn(cufftResult ret)
+{
+    if (ret != CUFFT_SUCCESS) {
+        fprintf(stderr, "cuFFT error: %s\n", cufftGetErrorString(ret));
+        fflush(stderr);
+    }
+    assert(ret == CUFFT_SUCCESS);
+}
+
+void cudaCheckKernel() {
+    cudaCheckReturn(cudaGetLastError());
+}
+
+#endif
