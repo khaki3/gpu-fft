@@ -1,35 +1,91 @@
 #include "common.hu"
 
-typedef half2 ftype;
-long long sig_size = 1<<23;
-
-int main ()
+std::vector<float> benchmark(DATA_TYPE *output,
+                             DATA_TYPE *data,
+                             cudaEvent_t start, cudaEvent_t stop)
 {
-  ftype *h_idata = (ftype *)malloc(sig_size*sizeof(ftype));
-  ftype *d_idata;
-  ftype *d_odata;
-  cudaMalloc(&d_idata, sizeof(ftype)*sig_size);
-  cudaMalloc(&d_odata, sizeof(ftype)*sig_size);
+    DATA_TYPE *dev_output, *dev_middle, *dev_data, *middle;
+    std::vector<float> time(2);
 
-  cufftHandle plan;
-  cufftCheckReturn(cufftCreate(&plan));
-  size_t ws = 0;
+    /*
+      Setup
+    */
+    cudaCheckReturn(cudaMallocHost(&middle, DATA_SIZE * sizeof(DATA_TYPE)));
 
-  cufftCheckReturn(cufftXtMakePlanMany(plan, 1,  &sig_size, NULL, 1, 1, CUDA_C_16F, NULL, 1, 1, CUDA_C_16F, 1, &ws, CUDA_C_16F));
-  cufftCheckReturn(cufftXtExec(plan, d_idata, d_odata, CUFFT_FORWARD)); // warm-up
+    cudaCheckReturn(cudaMalloc(&dev_data,   DATA_SIZE * sizeof(DATA_TYPE)));
+    cudaCheckReturn(cudaMalloc(&dev_middle, DATA_SIZE * sizeof(DATA_TYPE)));
+    cudaCheckReturn(cudaMalloc(&dev_output, DATA_SIZE * sizeof(DATA_TYPE)));
 
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start); cudaEventCreate(&stop);
-  cudaEventRecord(start);
+    cudaCheckReturn(cudaMemcpy(dev_data, data, DATA_SIZE * sizeof(DATA_TYPE),
+                               cudaMemcpyHostToDevice));
 
-  cufftCheckReturn(cufftXtExec(plan, d_idata, d_odata, CUFFT_FORWARD));
+    cufftHandle plan;
+    cufftCheckReturn(cufftCreate(&plan));
+    long long len = DATA_SIZE;
+    size_t ws = 0;
 
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  float et;
+    cufftCheckReturn(
+        cufftXtMakePlanMany(
+            plan, 1,  &len,
+            NULL, 1, 1, CUDA_C_16F,
+            NULL, 1, 1, CUDA_C_16F,
+            1, &ws, CUDA_C_16F));
 
-  cudaEventElapsedTime(&et, start, stop);
-  printf("forward FFT time for %ld samples: %fms\n", sig_size, et);
+    /*
+      FFT
+    */
+    cudaCheckReturn(cudaDeviceSynchronize());
+    cudaCheckReturn(cudaEventRecord(start));
 
-  return 0;
+    cufftCheckReturn(cufftXtExec(plan, dev_data, dev_middle, CUFFT_FORWARD));
+
+    cudaCheckReturn(cudaEventRecord(stop));
+    cudaCheckReturn(cudaEventSynchronize(stop));
+    cudaCheckKernel();
+
+    cudaCheckReturn(cudaEventElapsedTime(&time[0], start, stop));
+
+    /*
+      Scaling
+    */
+    cudaCheckReturn(cudaMemcpy(middle, dev_middle, DATA_SIZE * sizeof(DATA_TYPE),
+                               cudaMemcpyDeviceToHost));
+
+    for (size_t i = 0; i < DATA_SIZE; i++) {
+        float2 m = __half22float2(middle[i]);
+        middle[i] = __floats2half2_rn(m.x / DATA_SIZE, m.y / DATA_SIZE);
+    }    
+
+    cudaCheckReturn(cudaMemcpy(dev_middle, middle, DATA_SIZE * sizeof(DATA_TYPE),
+                               cudaMemcpyHostToDevice));
+
+    /*
+      IFFT
+    */
+    cudaCheckReturn(cudaDeviceSynchronize());
+    cudaCheckReturn(cudaEventRecord(start));
+
+    cufftCheckReturn(cufftXtExec(plan, dev_middle, dev_output, CUFFT_INVERSE));
+
+    cudaCheckReturn(cudaEventRecord(stop));
+    cudaCheckReturn(cudaEventSynchronize(stop));
+    cudaCheckKernel();
+
+    cudaCheckReturn(cudaEventElapsedTime(&time[1], start, stop));
+
+    /*
+      Close
+    */
+    cufftCheckReturn(cufftDestroy(plan));
+
+    cudaCheckReturn(cudaMemcpy(output, dev_output, DATA_SIZE * sizeof(DATA_TYPE),
+                               cudaMemcpyDeviceToHost));
+
+    cudaCheckReturn(cudaFreeHost(middle));
+
+    cudaCheckReturn(cudaFree(dev_output));
+    cudaCheckReturn(cudaFree(dev_middle));
+    cudaCheckReturn(cudaFree(dev_data));
+
+    return time;
 }

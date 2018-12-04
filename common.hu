@@ -2,13 +2,15 @@
 #define COMMON_H
 
 #include <cufft.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <cufftXt.h>
 #include <cuda_fp16.h>
-#include <assert.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cassert>
+#include <vector>
 
 #define ITER 10
+#define DATA_TYPE half2
 #define DATA_SIZE 65536
 
 void cudaCheckReturn(cudaError_t ret)
@@ -68,6 +70,81 @@ void cufftCheckReturn(cufftResult ret)
 
 void cudaCheckKernel() {
     cudaCheckReturn(cudaGetLastError());
+}
+
+std::vector<float> benchmark(DATA_TYPE *output,
+                             DATA_TYPE *data,
+                             cudaEvent_t start, cudaEvent_t stop);
+
+void sim ()
+{
+    /*
+      Initialize timers
+    */
+    cudaEvent_t start, stop;
+    cudaCheckReturn(cudaEventCreate(&start));
+    cudaCheckReturn(cudaEventCreate(&stop));
+
+    /*
+      Host data
+    */
+    DATA_TYPE *output, *data;
+    cudaCheckReturn(cudaMallocHost(&output, DATA_SIZE * sizeof(DATA_TYPE)));
+    cudaCheckReturn(cudaMallocHost(&data,   DATA_SIZE * sizeof(DATA_TYPE)));
+
+    float elapsed_fft = 0.0, elapsed_ifft = 0.0;
+
+    srand(0);
+
+    for (int testnum = 0; testnum < ITER + 1; testnum++) {
+        /*
+          Initialize data
+        */
+        {
+            for (size_t i = 0; i < DATA_SIZE; i++)
+                data[i] = __floats2half2_rn(rand() / (float)RAND_MAX,
+                                            rand() / (float)RAND_MAX);
+        }
+
+        if (ITER >= 1) {
+            std::vector<float> time = benchmark(output, data, start, stop);
+            elapsed_fft  += time[0];
+            elapsed_ifft += time[1];
+        }
+
+        /*
+          Data Validation
+        */
+        {
+            for (size_t i = 0; i < DATA_SIZE; i++) {
+                float2 d = __half22float2(data[i]);
+                float2 o = __half22float2(output[i]);
+
+                if (fabs(d.x - o.x) >= 0.1 || fabs(d.y - o.y) >= 0.1) {
+                    fprintf(stderr, "data[%d]=%+f|%+f -> output[%d]=%+f|%+f\n",
+                            i, d.x, d.y, i, o.x, o.y);
+                    break;
+                }
+            }
+        }
+    }
+
+    /*
+      Close
+    */
+    cudaCheckReturn(cudaFreeHost(output));
+    cudaCheckReturn(cudaFreeHost(data));
+
+    cudaCheckReturn(cudaEventDestroy(start));
+    cudaCheckReturn(cudaEventDestroy(stop));
+
+    printf("%f, %f (ms)\n", elapsed_fft / ITER,  elapsed_ifft / ITER);
+}
+
+int main (int argc, char *argv[])
+{
+    sim();
+    return 0;
 }
 
 #endif
