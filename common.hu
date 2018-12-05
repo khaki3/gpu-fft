@@ -119,11 +119,13 @@ void sim ()
             for (size_t i = 0; i < DATA_SIZE; i++) {
                 float2 d = __half22float2(data[i]);
                 float2 o = __half22float2(output[i]);
+                float rp = d.x - o.x;
+                float ip = d.y - o.y;
 
-                if (fabs(d.x - o.x) >= 0.1 || fabs(d.y - o.y) >= 0.1) {
-                    fprintf(stderr, "data[%d]=%+f|%+f -> output[%d]=%+f|%+f\n",
+                if (isnan(rp) || fabs(rp) >= 0.1 || isnan(ip) || fabs(ip) >= 0.1) {
+                    fprintf(stderr, "data[%5d]=%+f|%+f -> output[%5d]=%+f|%+f\n",
                             i, d.x, d.y, i, o.x, o.y);
-                    break;
+                    // break;
                 }
             }
         }

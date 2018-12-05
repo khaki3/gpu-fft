@@ -4,7 +4,8 @@ OBJ = $(SRC:.cu=)
 all: $(OBJ)
 
 %: %.cu common.hu Makefile
-	nvcc -lcufftw -lcufft -Xcompiler -fopenmp --std=c++11 -O3 -o $@ $<
+	nvcc -arch=sm_70 -lcufftw -lcufft --use_fast_math -Xcompiler -fopenmp \
+		--std=c++11 -O3 -o $@ $<
 
 test: $(OBJ)
 	for o in $(OBJ) ; do \
