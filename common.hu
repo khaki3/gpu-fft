@@ -125,7 +125,7 @@ void sim ()
                 if (isnan(rp) || fabs(rp) >= 0.1 || isnan(ip) || fabs(ip) >= 0.1) {
                     fprintf(stderr, "data[%5d]=%+f|%+f -> output[%5d]=%+f|%+f\n",
                             i, d.x, d.y, i, o.x, o.y);
-                    // break;
+                    break;
                 }
             }
         }
