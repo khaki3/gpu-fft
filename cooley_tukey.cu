@@ -2,7 +2,6 @@
 #include <cooperative_groups.h>
 
 #define CUDART_PI_F 3.141592654f
-typedef unsigned short int ushort;
 
 __device__ __forceinline__ DATA_TYPE mul(DATA_TYPE a, DATA_TYPE b)
 {
@@ -27,7 +26,7 @@ __device__ __forceinline__ DATA_TYPE twiddle(DATA_TYPE a, size_t n, size_t block
     return mul(a, __floats2half2_rn(cosf(f), sinf(f)));
 }
 
-__global__ void fft_kernel(DATA_TYPE *data, size_t n)
+__global__ void fft_kernel(DATA_TYPE *output, DATA_TYPE *data, size_t n)
 {
     __shared__ DATA_TYPE sm[512];
     size_t id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -66,23 +65,24 @@ __global__ void fft_kernel(DATA_TYPE *data, size_t n)
     __syncwarp();
 
     // gemm
-    data[offset + col * n + row] = __hadd2(__hadd2(mul(sm[threadIdx.x - col + 0], f_0),
-                                                   mul(sm[threadIdx.x - col + 1], f_1)),
-                                           __hadd2(mul(sm[threadIdx.x - col + 2], f_2),
-                                                   mul(sm[threadIdx.x - col + 3], f_3)));
+    output[offset + col * n + row] = __hadd2(__hadd2(mul(sm[threadIdx.x - col + 0], f_0),
+                                                     mul(sm[threadIdx.x - col + 1], f_1)),
+                                             __hadd2(mul(sm[threadIdx.x - col + 2], f_2),
+                                                     mul(sm[threadIdx.x - col + 3], f_3)));
 }
 
-__global__ void nested_transpose_kernel(DATA_TYPE *data, ushort *tra_map)
+__global__ void nested_transpose_kernel(DATA_TYPE *output, DATA_TYPE *data, ushort *tra_map)
 {
     size_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    data[id] = data[tra_map[id]];
+    output[id] = data[tra_map[id]];
 }
 
-void fft(DATA_TYPE *data, ushort *tra_map)
+void fft(DATA_TYPE *output, DATA_TYPE *data, ushort *tra_map)
 {
-    nested_transpose_kernel<<<DATA_SIZE / 512, 512>>>(data, tra_map);
-    for (size_t n = 1; n <= DATA_SIZE / 4; n *= 4) {
-        fft_kernel<<<DATA_SIZE / 512, 512>>>(data, n);
+    nested_transpose_kernel<<<DATA_SIZE / 128, 128>>>(output, data, tra_map);
+    for (size_t n = 1; n <= DATA_SIZE / 16; n *= 16) {
+        fft_kernel<<<DATA_SIZE / 128, 128>>>(data, output, n);
+        fft_kernel<<<DATA_SIZE / 128, 128>>>(output, data, n * 4);
     }
 }
 
@@ -131,7 +131,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     cudaCheckReturn(cudaMemcpy(dev_tra_map, tra_map, DATA_SIZE * sizeof(ushort),
                                cudaMemcpyHostToDevice));
 
-    cudaCheckReturn(cudaMemcpy(dev_middle, data, DATA_SIZE * sizeof(DATA_TYPE),
+    cudaCheckReturn(cudaMemcpy(dev_data, data, DATA_SIZE * sizeof(DATA_TYPE),
                                cudaMemcpyHostToDevice));
 
     cufftHandle plan;
@@ -153,7 +153,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     cudaCheckReturn(cudaEventRecord(start));
 
     // cufftCheckReturn(cufftXtExec(plan, dev_data, dev_middle, CUFFT_FORWARD));
-    fft(dev_middle, dev_tra_map);
+    fft(dev_middle, dev_data, dev_tra_map);
 
     cudaCheckReturn(cudaEventRecord(stop));
     cudaCheckReturn(cudaEventSynchronize(stop));
