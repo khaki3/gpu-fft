@@ -2,7 +2,7 @@
 #include <cooperative_groups.h>
 
 #define CUDART_PI_F 3.141592654f
-#define DATA_SIZE 16
+typedef unsigned short int ushort;
 
 __device__ __forceinline__ DATA_TYPE mul(DATA_TYPE a, DATA_TYPE b)
 {
@@ -62,26 +62,28 @@ __global__ void fft_kernel(DATA_TYPE *data, size_t n)
     // transpose, multiply by twiddle factor (W^(col, row))
     DATA_TYPE x = (n >= 4) ? twiddle(data[offset + col * n + row], n, row, col) : data[id];
 
-    if (n == 4 && (id >= 8 && id <= 11)) {
-        float2 f = __half22float2(x);
-        printf("id=%d %f %f\n", id, f.x, f.y);
-    }
-
     sm[threadIdx.x] = x;
     __syncwarp();
 
     // gemm
-    data[id] = __hadd2(__hadd2(mul(sm[threadIdx.x - col + 0], f_0),
-                               mul(sm[threadIdx.x - col + 1], f_1)),
-                       __hadd2(mul(sm[threadIdx.x - col + 2], f_2),
-                               mul(sm[threadIdx.x - col + 3], f_3)));
+    data[offset + col * n + row] = __hadd2(__hadd2(mul(sm[threadIdx.x - col + 0], f_0),
+                                                   mul(sm[threadIdx.x - col + 1], f_1)),
+                                           __hadd2(mul(sm[threadIdx.x - col + 2], f_2),
+                                                   mul(sm[threadIdx.x - col + 3], f_3)));
 }
 
-void fft(DATA_TYPE *data)
+__global__ void nested_transpose_kernel(DATA_TYPE *data, ushort *tra_map)
 {
-   for (size_t n = 1; n <= DATA_SIZE / 4; n *= 4) {
-       fft_kernel<<<DATA_SIZE / 16, 16>>>(data, n);
-   }
+    size_t id = blockIdx.x * blockDim.x + threadIdx.x;
+    data[id] = data[tra_map[id]];
+}
+
+void fft(DATA_TYPE *data, ushort *tra_map)
+{
+    nested_transpose_kernel<<<DATA_SIZE / 16, 16>>>(data, tra_map);
+    for (size_t n = 1; n <= DATA_SIZE / 4; n *= 4) {
+        fft_kernel<<<DATA_SIZE / 16, 16>>>(data, n);
+    }
 }
 
 std::vector<float> benchmark(DATA_TYPE *output,
@@ -89,16 +91,45 @@ std::vector<float> benchmark(DATA_TYPE *output,
                              cudaEvent_t start, cudaEvent_t stop)
 {
     DATA_TYPE *dev_output, *dev_middle, *dev_data, *middle;
+    ushort *dev_tra_map, *tra_map_r, *tra_map;
     std::vector<float> time(2);
 
     /*
       Setup
     */
     cudaCheckReturn(cudaMallocHost(&middle, DATA_SIZE * sizeof(DATA_TYPE)));
+    cudaCheckReturn(cudaMallocHost(&tra_map_r, DATA_SIZE * sizeof(ushort)));
+    cudaCheckReturn(cudaMallocHost(&tra_map, DATA_SIZE * sizeof(ushort)));
 
     cudaCheckReturn(cudaMalloc(&dev_data,      DATA_SIZE * sizeof(DATA_TYPE)));
     cudaCheckReturn(cudaMalloc(&dev_middle,    DATA_SIZE * sizeof(DATA_TYPE)));
     cudaCheckReturn(cudaMalloc(&dev_output,    DATA_SIZE * sizeof(DATA_TYPE)));
+
+    for (size_t i = 0; i < DATA_SIZE; i++)
+        tra_map[i] = i;
+
+    for (size_t n = DATA_SIZE; n >= 16; n /= 4) {
+        size_t blocknum = DATA_SIZE / n;
+        for (size_t i = 0; i < blocknum; i++) {
+            size_t offset = n * i;
+            for (size_t j = 0; j < n; j++) {
+                size_t row = j / 4;
+                size_t col = j % 4;
+                tra_map_r[offset + col * (n / 4) + row] = tra_map[offset + j];
+            }
+            for (size_t j = 0; j < n; j++) {
+                tra_map[offset + j] = tra_map_r[offset + j];
+            }
+        }
+    }
+
+    for (size_t i = 0; i < DATA_SIZE; i++) {
+        tra_map[tra_map_r[i]] = i;
+    }
+
+    cudaCheckReturn(cudaMalloc(&dev_tra_map,   DATA_SIZE * sizeof(ushort)));
+    cudaCheckReturn(cudaMemcpy(dev_tra_map, tra_map, DATA_SIZE * sizeof(ushort),
+                               cudaMemcpyHostToDevice));
 
     cudaCheckReturn(cudaMemcpy(dev_middle, data, DATA_SIZE * sizeof(DATA_TYPE),
                                cudaMemcpyHostToDevice));
@@ -121,8 +152,8 @@ std::vector<float> benchmark(DATA_TYPE *output,
     cudaCheckReturn(cudaDeviceSynchronize());
     cudaCheckReturn(cudaEventRecord(start));
 
-//    cufftCheckReturn(cufftXtExec(plan, dev_data, dev_middle, CUFFT_FORWARD));
-    fft(dev_middle);
+    // cufftCheckReturn(cufftXtExec(plan, dev_data, dev_middle, CUFFT_FORWARD));
+    fft(dev_middle, dev_tra_map);
 
     cudaCheckReturn(cudaEventRecord(stop));
     cudaCheckReturn(cudaEventSynchronize(stop));
@@ -167,10 +198,13 @@ std::vector<float> benchmark(DATA_TYPE *output,
                                cudaMemcpyDeviceToHost));
 
     cudaCheckReturn(cudaFreeHost(middle));
+    cudaCheckReturn(cudaFreeHost(tra_map_r));
+    cudaCheckReturn(cudaFreeHost(tra_map));
 
     cudaCheckReturn(cudaFree(dev_output));
     cudaCheckReturn(cudaFree(dev_middle));
     cudaCheckReturn(cudaFree(dev_data));
+    cudaCheckReturn(cudaFree(dev_tra_map));
 
     return time;
 }
