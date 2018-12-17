@@ -29,7 +29,7 @@ __device__ __forceinline__ DATA_TYPE twiddle(DATA_TYPE a, size_t n, size_t block
 
 __global__ void fft_kernel(DATA_TYPE *data, size_t n)
 {
-    __shared__ DATA_TYPE sm[256];
+    __shared__ DATA_TYPE sm[512];
     size_t id = blockIdx.x * blockDim.x + threadIdx.x;
 
     const float f_real[] = { 
@@ -80,9 +80,9 @@ __global__ void nested_transpose_kernel(DATA_TYPE *data, ushort *tra_map)
 
 void fft(DATA_TYPE *data, ushort *tra_map)
 {
-    nested_transpose_kernel<<<DATA_SIZE / 16, 16>>>(data, tra_map);
+    nested_transpose_kernel<<<DATA_SIZE / 512, 512>>>(data, tra_map);
     for (size_t n = 1; n <= DATA_SIZE / 4; n *= 4) {
-        fft_kernel<<<DATA_SIZE / 16, 16>>>(data, n);
+        fft_kernel<<<DATA_SIZE / 512, 512>>>(data, n);
     }
 }
 
@@ -194,7 +194,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     */
     cufftCheckReturn(cufftDestroy(plan));
 
-    cudaCheckReturn(cudaMemcpy(output, dev_middle, DATA_SIZE * sizeof(DATA_TYPE),
+    cudaCheckReturn(cudaMemcpy(output, dev_output, DATA_SIZE * sizeof(DATA_TYPE),
                                cudaMemcpyDeviceToHost));
 
     cudaCheckReturn(cudaFreeHost(middle));
