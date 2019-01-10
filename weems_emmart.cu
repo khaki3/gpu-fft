@@ -68,9 +68,9 @@ __global__ void kernel1_2(DATA_TYPE *output, DATA_TYPE *data, int kernel_id)
         for (int i = 0; i < 8; i++) {
             size_t id = (blockIdx.x + threadIdx.y * 128 + i * 128 * 8);
             size_t row = id / 2;
-            size_t rem = id % 2;
+            size_t rem = blockIdx.x % 2;
             output[(((row % 64) * 64 + row / 64) * 2 + rem) * 8 + threadIdx.x] =
-                twiddle(out[i], 64 * 64, id % 64, (id / 64) % 64);
+                twiddle(out[i], 64 * 64, row % 64, (row / 64) % 64);
         }
     }
 
@@ -78,7 +78,7 @@ __global__ void kernel1_2(DATA_TYPE *output, DATA_TYPE *data, int kernel_id)
         for (int i = 0; i < 8; i++) {
             size_t id = (blockIdx.x + threadIdx.y * 128 + i * 128 * 8);
             size_t row = id / 2;
-            size_t rem = id % 2;
+            size_t rem = blockIdx.x % 2;
             output[id * 8 + threadIdx.x] =
                 twiddle(out[i], 64 * 64 * 16, row, rem * 8 + threadIdx.x);
         }
@@ -87,23 +87,19 @@ __global__ void kernel1_2(DATA_TYPE *output, DATA_TYPE *data, int kernel_id)
 
 __global__ void kernel3(DATA_TYPE *output, DATA_TYPE *data)
 {
-    size_t local_id = threadIdx.y * blockDim.x + threadIdx.x;
-    size_t local_pos = local_id * 16;
-    size_t global_id = blockIdx.x * blockDim.x * blockDim.y + local_id;
-    size_t global_pos = global_id * 16;
-    size_t row = global_id;
+    size_t pos = (blockIdx.x * blockDim.x + threadIdx.x) * 16;
 
     DATA_TYPE sample[16];
     DATA_TYPE out[16];
 
     for (int i = 0; i < 16; i++)
-        sample[i] = data[global_pos + i];
+        sample[i] = data[pos + i];
 
     // 1. 16-point fft
     sFFT(out, sample, 16);
 
     for (int i = 0; i < 16; i++) {
-        output[global_pos + i] = out[i];
+        output[pos + i] = out[i];
     }
 }
 
@@ -177,9 +173,9 @@ std::vector<float> benchmark(DATA_TYPE *output,
         middle2[i] = m;
     }
 
-    for (size_t i = 0; i < 16; i++) {
-        for (size_t j = 0; j < 4096; j++) {
-            middle[j * 16 + i] = middle2[i * 4096 + j];
+    for (size_t i = 0; i < 4096; i++) {
+        for (size_t j = 0; j < 16; j++) {
+            middle[j * 4096 + i] = middle2[i * 16 + j];
         }
     }
 
