@@ -11,7 +11,7 @@
 #include <cublas_v2.h>
 
 #define ITER 10
-#define DATA_TYPE half2
+#define DATA_TYPE float2
 #define DATA_SIZE 65536
 
 void cudaCheckReturn(cudaError_t ret)
@@ -142,8 +142,8 @@ void sim ()
         */
         {
             for (size_t i = 0; i < DATA_SIZE; i++)
-                data[i] = __floats2half2_rn(rand() / (float)RAND_MAX,
-                                            rand() / (float)RAND_MAX);
+                data[i] = make_float2(rand() / (float)RAND_MAX,
+                                      rand() / (float)RAND_MAX);
         }
 
         if (ITER >= 1) {
@@ -157,8 +157,8 @@ void sim ()
         */
         {
             for (size_t i = 0; i < DATA_SIZE; i++) {
-                float2 d = __half22float2(data[i]);
-                float2 o = __half22float2(output[i]);
+                float2 d = data[i];
+                float2 o = output[i];
                 float rp = d.x - o.x;
                 float ip = d.y - o.y;
 

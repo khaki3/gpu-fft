@@ -27,9 +27,9 @@ std::vector<float> benchmark(DATA_TYPE *output,
     cufftCheckReturn(
         cufftXtMakePlanMany(
             plan, 1,  &len,
-            NULL, 1, 1, CUDA_C_16F,
-            NULL, 1, 1, CUDA_C_16F,
-            1, &ws, CUDA_C_16F));
+            NULL, 1, 1, CUDA_C_32F,
+            NULL, 1, 1, CUDA_C_32F,
+            1, &ws, CUDA_C_32F));
 
     /*
       FFT
@@ -52,8 +52,10 @@ std::vector<float> benchmark(DATA_TYPE *output,
                                cudaMemcpyDeviceToHost));
 
     for (size_t i = 0; i < DATA_SIZE; i++) {
-        float2 m = __half22float2(middle[i]);
-        middle[i] = __floats2half2_rn(m.x / DATA_SIZE, m.y / DATA_SIZE);
+        float2 m = middle[i];
+        m.x /= DATA_SIZE;
+        m.y /= DATA_SIZE;
+        middle[i] = m;
     }    
 
     cudaCheckReturn(cudaMemcpy(dev_middle, middle, DATA_SIZE * sizeof(DATA_TYPE),
