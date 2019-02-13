@@ -3,6 +3,11 @@
 
 #define PI 3.141592654f
 
+float calc_w(float r, float n)
+{
+  return fmod(- (2 * PI * r) / n, 2 * PI);
+}
+
 float bluestein(cudaEvent_t start, cudaEvent_t stop,
                 DATA_TYPE *dev_data, DATA_TYPE *dev_middle)
 {
@@ -38,7 +43,7 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
     cudaCheckReturn(cudaMallocHost(&CX,    N * sizeof(DATA_TYPE)));
 
     for (int l = 0; l <= N-1; l++) {
-      float p = (2 * PI * (- 1 / (float)2) * (l * l)) / (float)N;
+      float p = calc_w((- 1 / (float)2) * (l * l), N);;
       h[l].x = cosf(p);
       h[l].y = sinf(p);
     }
@@ -57,9 +62,9 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
       hh[r].y = 0.f;
 
       for (int l = 0; l <= M - 1; l++) {
-        float p = (2 * PI * r * l) / (float)M;
-        hh[r].x +=   h[l].x * cosf(p) + h[l].y * sinf(p);
-        hh[r].y += - h[l].x * sinf(p) + h[l].y * cosf(p);
+        float p = calc_w(r * l, M);
+        hh[r].x += h[l].x * cosf(p) - h[l].y * sinf(p);
+        hh[r].y += h[l].x * sinf(p) + h[l].y * cosf(p);
       }
     }
 
@@ -67,9 +72,9 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
                                cudaMemcpyDeviceToHost));
 
     for (int l = 0; l <= N - 1; l++) {
-      float p = (2 * PI * (1 / (float)2) * l * l) / (float)N;
-      y[l].x =   x[l].x * cosf(p) + x[l].y * sinf(p);
-      y[l].y = - x[l].x * sinf(p) + x[l].y * cosf(p);
+      float p = calc_w((1 / (float)2) * l * l, N);
+      y[l].x = x[l].x * cosf(p) - x[l].y * sinf(p);
+      y[l].y = x[l].x * sinf(p) + x[l].y * cosf(p);
     }
     for (int l = N; l <= M - 1; l++) {
       y[l].x = 0.f;
@@ -81,15 +86,15 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
       CY[r].y = 0.f;
 
       for (int l = 0; l <= M - 1; l++) {
-        float p = (2 * PI * r * l) / (float)M;
-        CY[r].x +=   y[l].x * cosf(p) + y[l].y * sinf(p);
-        CY[r].y += - y[l].x * sinf(p) + y[l].y * cosf(p);
+        float p = calc_w(2 * PI * r * l, M);
+        CY[r].x += y[l].x * cosf(p) - y[l].y * sinf(p);
+        CY[r].y += y[l].x * sinf(p) + y[l].y * cosf(p);
       }
     }
 
     for (int r = 0; r <= M - 1; r++) {
-      hCZ[r].x = CY[r].x * hh[r].x;
-      hCZ[r].y = CY[r].y * hh[r].y;
+      hCZ[r].x = CY[r].x * hh[r].x - CY[r].y * hh[r].y;
+      hCZ[r].y = CY[r].x * hh[r].y + CY[r].y * hh[r].x;
     }
 
     for (int r = 0; r <= M - 1; r++) {
@@ -97,19 +102,33 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
       CZ[r].y = 0.f;
 
       for (int l = 0; l <= M - 1; l++) {
-        float p = (2 * PI * (- r) * l) / (float)M;
-        CZ[r].x +=   hCZ[l].x * cosf(p) + hCZ[l].y * sinf(p);
-        CZ[r].y += - hCZ[l].x * sinf(p) + hCZ[l].y * cosf(p);
+        float p = calc_w(- r * l, M);
+        CZ[r].x += hCZ[l].x * cosf(p) - hCZ[l].y * sinf(p);
+        CZ[r].y += hCZ[l].x * sinf(p) + hCZ[l].y * cosf(p);
       }
 
       CZ[r].x /= M;
       CZ[r].y /= M;
     }
 
+    // for (int r = 0; r <= N - 1; r++) {
+    //   CZ[r].x = 0.f;
+    //   CZ[r].y = 0.f;
+
+    //   for (int l = 0; l <= N - 1; l++) {
+    //     int m = abs(r - l);
+    //     CZ[r].x += y[l].x * h[m].x - y[l].y * h[m].y;
+    //     CZ[r].y += y[l].x * h[m].y + y[l].y * h[m].x;
+    //   }
+
+    //   // CZ[r].x /= M;
+    //   // CZ[r].y /= M;
+    // }
+
     for (int r = 0; r <= N - 1; r++) {
-      float p = (2 * PI * (1 / (float)2) * r * r) / (float)N;
-      CX[r].x =   CZ[r].x * cosf(p) + CZ[r].y * sinf(p);
-      CX[r].y = - CZ[r].x * sinf(p) + CZ[r].y * cosf(p);
+      float p = calc_w((1 / (float)2) * r * r, N);
+      CX[r].x = CZ[r].x * cosf(p) - CZ[r].y * sinf(p);
+      CX[r].y = CZ[r].x * sinf(p) + CZ[r].y * cosf(p);
     }
 
     cudaCheckReturn(cudaMemcpy(dev_middle, CX, N * sizeof(DATA_TYPE),
@@ -164,6 +183,17 @@ std::vector<float> benchmark(DATA_TYPE *output,
     */
     time[0] = bluestein(start, stop, dev_data, dev_middle);
     cudaCheckKernel();
+    //     cudaCheckReturn(cudaDeviceSynchronize());
+    // cudaCheckReturn(cudaEventRecord(start));
+
+    // cufftCheckReturn(cufftXtExec(plan, dev_data, dev_middle, CUFFT_FORWARD));
+
+    // cudaCheckReturn(cudaEventRecord(stop));
+    // cudaCheckReturn(cudaEventSynchronize(stop));
+    // cudaCheckKernel();
+
+    // cudaCheckReturn(cudaEventElapsedTime(&time[0], start, stop));
+
 
     /*
       Scaling
@@ -200,7 +230,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     */
     cufftCheckReturn(cufftDestroy(plan));
 
-    cudaCheckReturn(cudaMemcpy(output, dev_output, N * sizeof(DATA_TYPE),
+    cudaCheckReturn(cudaMemcpy(output, dev_middle, N * sizeof(DATA_TYPE),
                                cudaMemcpyDeviceToHost));
 
     cudaCheckReturn(cudaFreeHost(middle));
