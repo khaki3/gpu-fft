@@ -126,6 +126,8 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
     cudaCheckReturn(cudaFree(dev_hh));
     cudaCheckReturn(cudaFree(dev_wn));
 
+    cufftCheckReturn(cufftDestroy(plan));
+
     return time;
 }
 
