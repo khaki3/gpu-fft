@@ -1,0 +1,192 @@
+#ifndef COMMON_H
+#define COMMON_H
+
+#include <cufft.h>
+#include <cufftXt.h>
+#include <cuda_fp16.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cassert>
+#include <vector>
+#include <cublas_v2.h>
+
+#define ITER 10
+#define DATA_TYPE float2
+#define DATA_SIZE 65536
+
+void cudaCheckReturn(cudaError_t ret)
+{
+    if (ret != cudaSuccess) {
+        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(ret));
+        fflush(stderr);
+    }
+    assert(ret == cudaSuccess);
+}
+
+const char *cufftGetErrorString(cufftResult error)
+{
+    switch (error) {
+    case CUFFT_SUCCESS:
+        return "CUFFT_SUCCESS";
+
+    case CUFFT_INVALID_PLAN:
+        return "CUFFT_INVALID_PLAN";
+
+    case CUFFT_ALLOC_FAILED:
+        return "CUFFT_ALLOC_FAILED";
+
+    case CUFFT_INVALID_TYPE:
+        return "CUFFT_INVALID_TYPE";
+
+    case CUFFT_INVALID_VALUE:
+        return "CUFFT_INVALID_VALUE";
+
+    case CUFFT_INTERNAL_ERROR:
+        return "CUFFT_INTERNAL_ERROR";
+
+    case CUFFT_EXEC_FAILED:
+        return "CUFFT_EXEC_FAILED";
+
+    case CUFFT_SETUP_FAILED:
+        return "CUFFT_SETUP_FAILED";
+
+    case CUFFT_INVALID_SIZE:
+        return "CUFFT_INVALID_SIZE";
+
+    case CUFFT_UNALIGNED_DATA:
+        return "CUFFT_UNALIGNED_DATA";
+    }
+
+    return "<unknown>";
+}
+
+void cufftCheckReturn(cufftResult ret)
+{
+    if (ret != CUFFT_SUCCESS) {
+        fprintf(stderr, "cuFFT error: %s\n", cufftGetErrorString(ret));
+        fflush(stderr);
+    }
+    assert(ret == CUFFT_SUCCESS);
+}
+
+__device__ __host__ const char *cublasGetErrorString(cublasStatus_t error)
+{
+    switch (error)
+    {
+        case CUBLAS_STATUS_SUCCESS:
+            return "CUBLAS_STATUS_SUCCESS";
+
+        case CUBLAS_STATUS_NOT_INITIALIZED:
+            return "CUBLAS_STATUS_NOT_INITIALIZED";
+
+        case CUBLAS_STATUS_ALLOC_FAILED:
+            return "CUBLAS_STATUS_ALLOC_FAILED";
+
+        case CUBLAS_STATUS_INVALID_VALUE:
+            return "CUBLAS_STATUS_INVALID_VALUE";
+
+        case CUBLAS_STATUS_ARCH_MISMATCH:
+            return "CUBLAS_STATUS_ARCH_MISMATCH";
+
+        case CUBLAS_STATUS_MAPPING_ERROR:
+            return "CUBLAS_STATUS_MAPPING_ERROR";
+
+        case CUBLAS_STATUS_EXECUTION_FAILED:
+            return "CUBLAS_STATUS_EXECUTION_FAILED";
+
+        case CUBLAS_STATUS_INTERNAL_ERROR:
+            return "CUBLAS_STATUS_INTERNAL_ERROR";
+    }
+
+    return "<unknown>";
+}
+
+__device__ void cublasCheckReturn(cublasStatus_t ret)
+{
+    if (ret != CUBLAS_STATUS_SUCCESS) {
+        printf("cuBLAS error: %s\n", cublasGetErrorString(ret));
+    }
+}
+
+void cudaCheckKernel() {
+    cudaCheckReturn(cudaGetLastError());
+}
+
+std::vector<float> benchmark(int size, DATA_TYPE *output,
+                             DATA_TYPE *data,
+                             cudaEvent_t start, cudaEvent_t stop);
+
+void sim ()
+{
+    /*
+      Initialize timers
+    */
+    cudaEvent_t start, stop;
+    cudaCheckReturn(cudaEventCreate(&start));
+    cudaCheckReturn(cudaEventCreate(&stop));
+
+    /*
+      Host data
+    */
+    DATA_TYPE *output, *data;
+    cudaCheckReturn(cudaMallocHost(&output, DATA_SIZE * sizeof(DATA_TYPE)));
+    cudaCheckReturn(cudaMallocHost(&data,   DATA_SIZE * sizeof(DATA_TYPE)));
+
+    float elapsed_fft = 0.0, elapsed_ifft = 0.0;
+
+    srand(0);
+
+    for (int testnum = 4; testnum <= DATA_SIZE; testnum++) {
+        /*
+          Initialize data
+        */
+        {
+            for (size_t i = 0; i < DATA_SIZE; i++)
+              data[i] = make_float2(1,
+                                    0);
+        }
+
+        if (ITER >= 1) {
+          std::vector<float> time = benchmark(testnum, output, data, start, stop);
+            elapsed_fft  += time[0];
+            elapsed_ifft += time[1];
+        }
+
+        /*
+          Data Validation
+        */
+        {
+            for (size_t i = 0; i < DATA_SIZE; i++) {
+                float2 d = data[i];
+                float2 o = output[i];
+                float rp = d.x - o.x;
+                float ip = d.y - o.y;
+
+                {
+                  printf("%d, %+f\n",
+                            testnum, o.x);
+                    break;
+                }
+            }
+        }
+    }
+
+    /*
+      Close
+    */
+    cudaCheckReturn(cudaFreeHost(output));
+    cudaCheckReturn(cudaFreeHost(data));
+
+    cudaCheckReturn(cudaEventDestroy(start));
+    cudaCheckReturn(cudaEventDestroy(stop));
+
+    printf("%f, %f (ms)\n", elapsed_fft / ITER,  elapsed_ifft / ITER);
+}
+
+int main (int argc, char *argv[])
+{
+    sim();
+    return 0;
+}
+
+#endif

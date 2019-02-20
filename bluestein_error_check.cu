@@ -1,4 +1,4 @@
-#include "common.hu"
+#include "common2.hu"
 #include <cmath>
 
 #define PI 3.141592654
@@ -105,12 +105,12 @@ __global__ void kernel2(int N, int M, DATA_TYPE *CZ, DATA_TYPE *wn, DATA_TYPE *C
     }
 }
 
-float bluestein(cudaEvent_t start, cudaEvent_t stop,
+float bluestein(int size, cudaEvent_t start, cudaEvent_t stop,
                 DATA_TYPE *dev_data, DATA_TYPE *dev_middle)
 {
     float time;
 
-    size_t N = DATA_SIZE;
+    size_t N = size;
     size_t M = pow(2.0, ceil(log2((double)(N - 1)) + 1));
 
     cufftHandle plan;
@@ -185,14 +185,14 @@ float bluestein(cudaEvent_t start, cudaEvent_t stop,
     return time;
 }
 
-std::vector<float> benchmark(DATA_TYPE *output,
+std::vector<float> benchmark(int size, DATA_TYPE *output,
                              DATA_TYPE *data,
                              cudaEvent_t start, cudaEvent_t stop)
 {
     DATA_TYPE *dev_output, *dev_middle, *dev_data, *middle;
     std::vector<float> time(2);
     
-    size_t N = DATA_SIZE;
+    size_t N = size;
     size_t M = pow(2.0, ceil(log2((double)(N - 1)) + 1));
 
     /*
@@ -222,7 +222,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     /*
       FFT
     */
-    time[0] = bluestein(start, stop, dev_data, dev_middle);
+    time[0] = bluestein(size, start, stop, dev_data, dev_middle);
     cudaCheckKernel();
 
     /*
@@ -231,7 +231,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     cudaCheckReturn(cudaMemcpy(middle, dev_middle, N * sizeof(DATA_TYPE),
                                cudaMemcpyDeviceToHost));
 
-    for (size_t i = 0; i < DATA_SIZE; i++) {
+    for (size_t i = 0; i < size; i++) {
         float2 m = middle[i];
         m.x /= N * M;
         m.y /= N * M;
@@ -260,7 +260,7 @@ std::vector<float> benchmark(DATA_TYPE *output,
     */
     cufftCheckReturn(cufftDestroy(plan));
 
-    cudaCheckReturn(cudaMemcpy(output, dev_output, N * sizeof(DATA_TYPE),
+    cudaCheckReturn(cudaMemcpy(output, dev_middle, N * sizeof(DATA_TYPE),
                                cudaMemcpyDeviceToHost));
 
     cudaCheckReturn(cudaFreeHost(middle));
